@@ -6,7 +6,6 @@ def test_paste_calls_attach_thread_input(mocker):
     mocker.patch("clipboard_paster.win32gui")
     mocker.patch("clipboard_paster.win32process")
     mocker.patch("clipboard_paster.win32api")
-    mocker.patch("clipboard_paster.win32con")
     from clipboard_paster import ClipboardPaster
     app_mock = MagicMock()
     paster = ClipboardPaster(qt_app=app_mock)
@@ -19,7 +18,6 @@ def test_paste_sets_clipboard_text(mocker):
     mocker.patch("clipboard_paster.win32gui")
     mocker.patch("clipboard_paster.win32process")
     mocker.patch("clipboard_paster.win32api")
-    mocker.patch("clipboard_paster.win32con")
     from clipboard_paster import ClipboardPaster
     app_mock = MagicMock()
     paster = ClipboardPaster(qt_app=app_mock)
@@ -30,7 +28,6 @@ def test_paste_sets_clipboard_text(mocker):
 def test_paste_sends_ctrl_v(mocker):
     mocker.patch("clipboard_paster.win32gui")
     mocker.patch("clipboard_paster.win32process")
-    mocker.patch("clipboard_paster.win32con")
     mock_win32api = mocker.patch("clipboard_paster.win32api")
     from clipboard_paster import ClipboardPaster
     app_mock = MagicMock()
