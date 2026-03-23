@@ -18,7 +18,7 @@ Construir una aplicación de escritorio para Windows 11 que permita dictado de v
 - **Hotkeys globales:** `pywin32` (`RegisterHotKey` via `win32con`) — hotkey de 3 teclas `Ctrl+Shift+Space`. La app debe correr con **privilegios de administrador** (manifest `requireAdministrator`) para garantizar que el hotkey se capture incluso cuando la ventana activa es un proceso elevado (ej. Task Manager). Sin admin, el hotkey falla silenciosamente en esos casos.
 - **Captura de audio:** `sounddevice` + `numpy`
 - **Transcripción:** Groq SDK — modelo `whisper-large-v3-turbo` (tier gratuito)
-- **Portapapeles y pegado:** `QClipboard` (PyQt6) + `keyboard.send('ctrl+v')`
+- **Portapapeles y pegado:** `QClipboard` (PyQt6) + `win32api.keybd_event` (VK_CONTROL + VK_V)
 - **Historial:** SQLite (módulo `sqlite3` de stdlib)
 - **Dashboard web:** Flask en `localhost:5678` (puerto configurable)
 - **Config:** `python-dotenv` + archivo `.env`
@@ -225,11 +225,10 @@ CREATE TABLE settings (
 
 ```
 GROQ_API_KEY=gsk_xxxxxxxxxxxx
-HOTKEY=ctrl+shift+space
 DASHBOARD_PORT=5678
 ```
 
-El valor de `HOTKEY` se usa al registrar el listener en `hotkey_manager.py`. La UI siempre muestra el hotkey leído desde config.
+**Nota sobre el hotkey:** En v1 el hotkey `Ctrl+Shift+Space` está **hardcodeado** en `hotkey_manager.py` como constantes de `win32con` (`MOD_CONTROL | MOD_SHIFT`, `VK_SPACE`). No se expone como configurable en `.env` para evitar la complejidad de parsear strings a enteros de `RegisterHotKey`. La UI muestra el hotkey como texto literal. La configurabilidad queda fuera de alcance de v1.
 
 ---
 
