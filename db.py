@@ -76,4 +76,5 @@ class Database:
             self._conn.commit()
 
     def close(self):
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
