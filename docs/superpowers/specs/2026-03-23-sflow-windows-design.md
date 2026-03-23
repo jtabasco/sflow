@@ -15,7 +15,7 @@ Construir una aplicación de escritorio para Windows 11 que permita dictado de v
 
 - **Lenguaje:** Python 3.11+
 - **UI:** PyQt6 (pill flotante + system tray)
-- **Hotkeys globales:** `keyboard` — hotkey de 3 teclas `Ctrl+Shift+Space`
+- **Hotkeys globales:** `pywin32` (`RegisterHotKey` via `win32con`) — hotkey de 3 teclas `Ctrl+Shift+Space`. La app debe correr con **privilegios de administrador** (manifest `requireAdministrator`) para garantizar que el hotkey se capture incluso cuando la ventana activa es un proceso elevado (ej. Task Manager). Sin admin, el hotkey falla silenciosamente en esos casos.
 - **Captura de audio:** `sounddevice` + `numpy`
 - **Transcripción:** Groq SDK — modelo `whisper-large-v3-turbo` (tier gratuito)
 - **Portapapeles y pegado:** `QClipboard` (PyQt6) + `keyboard.send('ctrl+v')`
@@ -35,7 +35,8 @@ Construir una aplicación de escritorio para Windows 11 que permita dictado de v
        │                                      │
 ┌──────▼──────┐                    ┌──────────▼────────┐
 │  HotkeyMgr  │                    │   SystemTray      │
-│ (keyboard)  │                    │   (PyQt6)         │
+│ (pywin32    │                    │   (PyQt6)         │
+│RegisterHotKey)│                  │                   │
 └──────┬──────┘                    └──────────┬────────┘
        │ Ctrl+Shift+Space                     │ abrir dashboard / salir
        │ held/released
@@ -43,7 +44,7 @@ Construir una aplicación de escritorio para Windows 11 que permita dictado de v
 │AudioRecorder│──── nivel RMS (via Qt Signal) ──► PillUI (PyQt6 flotante)
 │(sounddevice)│
 └──────┬──────┘
-       │ audio WAV buffer (BytesIO)
+       │ WAV BytesIO (PCM→WAV via stdlib wave)
 ┌──────▼──────┐
 │ Transcriber │──── Groq Whisper API ────► texto / error
 │ (groq SDK)  │
@@ -66,7 +67,7 @@ ClipboardPaster        HistoryDB (SQLite, thread-safe)
 ```
 sflow-windows/
 ├── app.py                  # Entry point: inicializa todos los módulos
-├── hotkey_manager.py       # Detecta Ctrl+Shift+Space (press/release) globalmente
+├── hotkey_manager.py       # Detecta Ctrl+Shift+Space via win32con.RegisterHotKey
 ├── audio_recorder.py       # Captura audio, calcula RMS, emite Qt Signals
 ├── transcriber.py          # Llama a Groq Whisper API, retorna texto o error
 ├── clipboard_paster.py     # Copia texto con QClipboard y simula Ctrl+V
@@ -131,8 +132,9 @@ sflow-windows/
    → Emite Qt Signal con valor float → PillUI actualiza barra (thread-safe)
 
 3. Usuario suelta Ctrl+Shift+Space
-   → AudioRecorder.stop() → WAV en BytesIO
+   → AudioRecorder.stop() → PCM raw buffer
    → Validación: duración >= 0.5s (si no, descarta y vuelve a IDLE)
+   → Encode PCM → WAV usando stdlib `wave` module (16kHz, mono, 16-bit) → BytesIO
    → PillUI → estado PROCESANDO
 
 4. Transcriber.transcribe(audio_bytes) — corre en QThread
@@ -141,9 +143,14 @@ sflow-windows/
    → Si error (timeout, 401, 429, etc.): retorna None + log del error
 
 5a. Si texto recibido y no vacío:
-   → win32gui.SetForegroundWindow(hwnd_guardado) — restaura foco
+   → Restaurar foco con AttachThreadInput trick (necesario en Windows):
+       fg_thread = win32process.GetWindowThreadProcessId(hwnd)[0]
+       cur_thread = win32api.GetCurrentThreadId()
+       win32gui.AttachThreadInput(fg_thread, cur_thread, True)
+       win32gui.SetForegroundWindow(hwnd_guardado)
+       win32gui.AttachThreadInput(fg_thread, cur_thread, False)
    → QClipboard.setText(texto)
-   → keyboard.send('ctrl+v')
+   → win32api.keybd_event(VK_V + CTRL) — paste via win32 (no keyboard lib)
    → PillUI → estado IDLE
    → HistoryDB.save(texto, duración_seg, timestamp)
 
@@ -163,12 +170,14 @@ sflow-windows/
 | Thread | Tipo | Responsabilidad |
 |--------|------|-----------------|
 | Main thread | Qt event loop | UI, system tray, eventos de usuario |
-| keyboard hook | `keyboard` interno | Detecta hotkeys globales, emite Qt Signals |
-| sounddevice callback | C-level thread | Captura audio, calcula RMS, emite Signal |
+| Hotkey listener | `QAbstractNativeEventFilter` | Recibe `WM_HOTKEY` de `RegisterHotKey`, emite Qt Signal |
+| sounddevice callback | C-level thread | Captura audio, calcula RMS, emite Signal via `QMetaObject.invokeMethod` |
 | Transcription worker | `QThread` | Llama a Groq API sin bloquear UI |
 | Flask server | `threading.Thread` daemon | Sirve el dashboard web |
 
-**Regla:** Toda comunicación con PyQt6 se hace exclusivamente via Qt Signals/Slots. Ningún thread externo llama métodos de Qt directamente.
+**Regla:** Toda comunicación con PyQt6 se hace exclusivamente via Qt Signals/Slots o `QMetaObject.invokeMethod(Qt.QueuedConnection)`. Ningún thread externo llama métodos de Qt directamente.
+
+**Nota de implementación — hotkey con pywin32:** `RegisterHotKey` requiere un message loop de Windows. Se implementa en `hotkey_manager.py` como `QAbstractNativeEventFilter` registrado en la `QApplication`, que intercepta `WM_HOTKEY` (0x0312) en el event loop de Qt. Esto evita necesitar un thread extra para el message loop.
 
 ---
 
@@ -228,7 +237,6 @@ El valor de `HOTKEY` se usa al registrar el listener en `hotkey_manager.py`. La 
 
 ```
 pyqt6>=6.6.0
-keyboard>=0.13.5
 sounddevice>=0.4.6
 numpy>=1.26.0
 groq>=0.9.0
@@ -236,6 +244,8 @@ pywin32>=306
 flask>=3.0.0
 python-dotenv>=1.0.0
 ```
+
+**Nota:** `keyboard` ya no es una dependencia — se usa `pywin32` (`RegisterHotKey` + `win32api.keybd_event`) para hotkeys y paste, lo que garantiza funcionamiento correcto con ventanas elevadas. `wave` (stdlib) para codificación WAV, sin dependencia adicional.
 
 ---
 
