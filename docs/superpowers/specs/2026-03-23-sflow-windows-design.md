@@ -7,7 +7,7 @@
 
 ## Objetivo
 
-Construir una aplicación de escritorio para Windows 11 que permita dictado de voz en cualquier aplicación mediante push-to-talk (`Ctrl+Shift`), transcribiendo con la API gratuita de Groq (Whisper), mostrando una pill flotante animada, y guardando el historial en un dashboard web local.
+Construir una aplicación de escritorio para Windows 11 que permita dictado de voz en cualquier aplicación mediante push-to-talk (`Ctrl+Shift+Space`), transcribiendo con la API gratuita de Groq (Whisper), mostrando una pill flotante animada, y guardando el historial en un dashboard web local.
 
 ---
 
@@ -15,13 +15,14 @@ Construir una aplicación de escritorio para Windows 11 que permita dictado de v
 
 - **Lenguaje:** Python 3.11+
 - **UI:** PyQt6 (pill flotante + system tray)
-- **Hotkeys globales:** `keyboard` (no requiere permisos de administrador en Windows 11)
+- **Hotkeys globales:** `keyboard` — hotkey de 3 teclas `Ctrl+Shift+Space`
 - **Captura de audio:** `sounddevice` + `numpy`
 - **Transcripción:** Groq SDK — modelo `whisper-large-v3-turbo` (tier gratuito)
-- **Portapapeles y pegado:** `pyperclip` + `keyboard.send('ctrl+v')`
+- **Portapapeles y pegado:** `QClipboard` (PyQt6) + `keyboard.send('ctrl+v')`
 - **Historial:** SQLite (módulo `sqlite3` de stdlib)
-- **Dashboard web:** Flask en `localhost:5678`
+- **Dashboard web:** Flask en `localhost:5678` (puerto configurable)
 - **Config:** `python-dotenv` + archivo `.env`
+- **Focus/window management:** `pywin32` (`win32gui`) para capturar HWND activo
 
 ---
 
@@ -36,22 +37,23 @@ Construir una aplicación de escritorio para Windows 11 que permita dictado de v
 │  HotkeyMgr  │                    │   SystemTray      │
 │ (keyboard)  │                    │   (PyQt6)         │
 └──────┬──────┘                    └──────────┬────────┘
-       │ Ctrl+Shift held/released             │ abrir dashboard / salir
+       │ Ctrl+Shift+Space                     │ abrir dashboard / salir
+       │ held/released
 ┌──────▼──────┐
-│AudioRecorder│──── nivel RMS ──────► PillUI (PyQt6 flotante)
+│AudioRecorder│──── nivel RMS (via Qt Signal) ──► PillUI (PyQt6 flotante)
 │(sounddevice)│
 └──────┬──────┘
        │ audio WAV buffer (BytesIO)
 ┌──────▼──────┐
-│ Transcriber │──── Groq Whisper API ────► texto
+│ Transcriber │──── Groq Whisper API ────► texto / error
 │ (groq SDK)  │
 └──────┬──────┘
        │ texto transcrito
 ┌──────┴──────────────────┐
 │                         │
 ▼                         ▼
-ClipboardPaster        HistoryDB (SQLite)
-(pyperclip+keyboard)        │
+ClipboardPaster        HistoryDB (SQLite, thread-safe)
+(QClipboard+keyboard)       │
                            ▼
                     Flask Dashboard
                     localhost:5678
@@ -64,18 +66,18 @@ ClipboardPaster        HistoryDB (SQLite)
 ```
 sflow-windows/
 ├── app.py                  # Entry point: inicializa todos los módulos
-├── hotkey_manager.py       # Detecta Ctrl+Shift (press/release) globalmente
-├── audio_recorder.py       # Captura audio, calcula RMS para visualización
-├── transcriber.py          # Llama a Groq Whisper API, retorna texto
-├── clipboard_paster.py     # Copia texto y simula Ctrl+V en el cursor activo
+├── hotkey_manager.py       # Detecta Ctrl+Shift+Space (press/release) globalmente
+├── audio_recorder.py       # Captura audio, calcula RMS, emite Qt Signals
+├── transcriber.py          # Llama a Groq Whisper API, retorna texto o error
+├── clipboard_paster.py     # Copia texto con QClipboard y simula Ctrl+V
 ├── pill_ui.py              # Ventana PyQt6 flotante sin bordes, siempre encima
 ├── tray_icon.py            # Ícono en bandeja del sistema con menú contextual
-├── db.py                   # Operaciones SQLite (create, insert, query)
+├── db.py                   # Operaciones SQLite thread-safe (transcriptions + settings)
 ├── dashboard/
 │   ├── server.py           # Flask app en localhost:5678
 │   └── templates/
-│       └── index.html      # Lista de transcripciones + buscador
-├── requirements.txt
+│       └── index.html      # Lista de transcripciones + buscador + paginación
+├── requirements.txt        # Con versiones pinadas
 ├── .env.example
 └── README.md
 ```
@@ -89,101 +91,159 @@ sflow-windows/
 - Ventana sin bordes, fondo semitransparente oscuro, esquinas redondeadas
 - Siempre encima de todas las ventanas (`WindowStaysOnTopHint`)
 - Draggable: el usuario puede moverla con click+arrastrar
-- Posición guardada en SQLite entre sesiones
-- **3 estados visuales:**
+- Posición guardada en tabla `settings` de SQLite entre sesiones
+- **4 estados visuales:**
   - **IDLE:** `🎙️ sflow` — pequeña, discreta
-  - **GRABANDO:** `🔴 ▁▃▅▇▅▃▁ grabando…` — barra animada con nivel de audio real
-  - **PROCESANDO:** `⏳ Transcribiendo…` — spinner mientras espera Groq
+  - **GRABANDO:** `🔴 ▁▃▅▇▅▃▁ grabando…` — barra animada con nivel RMS real
+  - **PROCESANDO:** `⏳ Transcribiendo…` — mientras espera respuesta de Groq
+  - **ERROR:** `⚠️ Error — ver tray` — fondo rojo suave, 3 segundos, luego IDLE
 
 ### System Tray
 
 - Ícono en bandeja del sistema de Windows
 - Menú contextual (clic derecho):
-  - Abrir dashboard (`localhost:5678`)
-  - Configurar API key
+  - Abrir dashboard (`localhost:5678` en navegador por defecto)
+  - Configurar API key (diálogo `QInputDialog` simple, guarda en `.env`)
   - Salir
 
 ### Dashboard web (Flask)
 
-- Lista de transcripciones con fecha/hora
-- Buscador por texto (filtro en tiempo real)
+- Lista de transcripciones con fecha/hora, paginada (50 por página)
+- Buscador por texto (filtro SQL `LIKE`)
 - Botón para copiar cada transcripción al portapapeles
 - HTML/CSS sin frameworks externos
+- Acceso solo desde `localhost` (`host='127.0.0.1'`, `debug=False`)
 
 ---
 
 ## Flujo de datos
 
 ```
-1. Usuario presiona Ctrl+Shift
-   → HotkeyManager detecta press
-   → AudioRecorder.start() — buffer en memoria
+1. Usuario presiona Ctrl+Shift+Space
+   → HotkeyManager detecta press del combo de 3 teclas
+   → win32gui.GetForegroundWindow() captura HWND activo (guardado en memoria)
+   → AudioRecorder.start() — buffer en memoria (BytesIO)
    → PillUI → estado GRABANDO + animación RMS
 
 2. Mientras mantiene presionado
-   → sounddevice captura chunks de 1024 samples @ 16kHz
-   → RMS calculado con numpy → PillUI actualiza barra
+   → sounddevice captura chunks @ 16kHz mono
+   → Callback de audio (C-level thread): calcula RMS con numpy
+   → Emite Qt Signal con valor float → PillUI actualiza barra (thread-safe)
 
-3. Usuario suelta Ctrl+Shift
+3. Usuario suelta Ctrl+Shift+Space
    → AudioRecorder.stop() → WAV en BytesIO
+   → Validación: duración >= 0.5s (si no, descarta y vuelve a IDLE)
    → PillUI → estado PROCESANDO
 
-4. Transcriber.transcribe(audio_bytes)
+4. Transcriber.transcribe(audio_bytes) — corre en QThread
    → POST a Groq API con modelo whisper-large-v3-turbo
-   → Retorna texto transcrito
+   → Si éxito: retorna texto (puede ser vacío si no hubo voz detectada)
+   → Si error (timeout, 401, 429, etc.): retorna None + log del error
 
-5. ClipboardPaster.paste(texto)
-   → pyperclip.copy(texto)
+5a. Si texto recibido y no vacío:
+   → win32gui.SetForegroundWindow(hwnd_guardado) — restaura foco
+   → QClipboard.setText(texto)
    → keyboard.send('ctrl+v')
    → PillUI → estado IDLE
+   → HistoryDB.save(texto, duración_seg, timestamp)
 
-6. HistoryDB.save(texto, duración_seg, timestamp)
-   → INSERT INTO transcriptions ...
+5b. Si texto vacío o None:
+   → PillUI → estado ERROR por 3 segundos → IDLE
+   → No se pega nada, no se guarda en historial
+
+6. Dashboard Flask (thread daemon separado)
+   → GET /  → HistoryDB.query(page, search) → HTML
+   → SQLite accedido con check_same_thread=False + Lock de threading
 ```
 
 ---
 
-## Configuración
+## Gestión de threads
 
-Archivo `.env` (no commiteado):
+| Thread | Tipo | Responsabilidad |
+|--------|------|-----------------|
+| Main thread | Qt event loop | UI, system tray, eventos de usuario |
+| keyboard hook | `keyboard` interno | Detecta hotkeys globales, emite Qt Signals |
+| sounddevice callback | C-level thread | Captura audio, calcula RMS, emite Signal |
+| Transcription worker | `QThread` | Llama a Groq API sin bloquear UI |
+| Flask server | `threading.Thread` daemon | Sirve el dashboard web |
+
+**Regla:** Toda comunicación con PyQt6 se hace exclusivamente via Qt Signals/Slots. Ningún thread externo llama métodos de Qt directamente.
+
+---
+
+## Base de datos SQLite
+
+### Tabla `transcriptions`
+```sql
+CREATE TABLE transcriptions (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    text      TEXT NOT NULL,
+    duration  REAL NOT NULL,   -- segundos
+    created_at TEXT NOT NULL   -- ISO 8601: "2026-03-23T14:30:00"
+);
+```
+
+### Tabla `settings`
+```sql
+CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- Ejemplo: key='pill_x', value='1200' | key='pill_y', value='800'
+```
+
+**Thread safety:** `db.py` usa una única instancia de `sqlite3.connect` con `check_same_thread=False` protegida por un `threading.Lock`. Toda operación adquiere el lock antes de ejecutar.
+
+---
+
+## Manejo de errores
+
+| Escenario | Comportamiento |
+|-----------|---------------|
+| Sin micrófono disponible | Error en startup: notificación tray + log, app sigue sin grabar |
+| Grabación < 0.5 segundos | Descartada silenciosamente, pill vuelve a IDLE |
+| Transcripción vacía (sin voz) | Pill → ERROR 3s → IDLE, no se pega nada |
+| Groq API key inválida (401) | Pill → ERROR, notificación tray "API key inválida" |
+| Groq rate limit (429) | Pill → ERROR, notificación tray "Límite de Groq alcanzado" |
+| Timeout de red | Pill → ERROR, notificación tray "Sin conexión" |
+| Puerto 5678 ocupado | Log de warning, dashboard no disponible (app sigue funcionando) |
+| Ventana activa cerrada antes del pegado | `SetForegroundWindow` falla silenciosamente, no se pega |
+
+---
+
+## Configuración (.env)
+
 ```
 GROQ_API_KEY=gsk_xxxxxxxxxxxx
-HOTKEY=ctrl+shift
+HOTKEY=ctrl+shift+space
 DASHBOARD_PORT=5678
 ```
 
-Archivo `.env.example` (commiteado como referencia).
+El valor de `HOTKEY` se usa al registrar el listener en `hotkey_manager.py`. La UI siempre muestra el hotkey leído desde config.
 
 ---
 
-## Dependencias (requirements.txt)
+## Dependencias (requirements.txt — versiones mínimas)
 
 ```
-pyqt6
-keyboard
-sounddevice
-numpy
-groq
-pyperclip
-flask
-python-dotenv
+pyqt6>=6.6.0
+keyboard>=0.13.5
+sounddevice>=0.4.6
+numpy>=1.26.0
+groq>=0.9.0
+pywin32>=306
+flask>=3.0.0
+python-dotenv>=1.0.0
 ```
-
----
-
-## Notas de implementación para Windows 11
-
-- `keyboard` en Windows no requiere permisos de administrador para hotkeys globales
-- `sounddevice` usa WASAPI en Windows, compatible con todos los micrófonos
-- PyQt6 maneja correctamente el DPI scaling de Windows 11
-- El thread de Flask corre como daemon para no bloquear el cierre de la app
-- El thread de `keyboard` y el de PyQt6 se comunican via `QMetaObject.invokeMethod` para ser thread-safe
 
 ---
 
 ## Fuera de alcance (v1)
 
-- Múltiples idiomas configurables (se puede añadir después)
-- Instalador `.exe` / distribución (se puede añadir con PyInstaller)
+- Múltiples idiomas configurables
+- Instalador `.exe` / distribución con PyInstaller
 - Inicio automático con Windows
-- Soporte para otros servicios de transcripción
+- Soporte para otros servicios de transcripción (OpenAI, local Whisper)
+- Autenticación en el dashboard web
+- Selección manual de dispositivo de micrófono
