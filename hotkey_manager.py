@@ -1,8 +1,7 @@
 import logging
 import win32con
 import win32gui
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QAbstractNativeEventFilter
+from PyQt6.QtCore import QObject, pyqtSignal, QAbstractNativeEventFilter
 
 logger = logging.getLogger(__name__)
 
