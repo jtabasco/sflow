@@ -351,13 +351,16 @@ def test_duration_too_short_returns_none(recorder):
     assert result is None
 
 
-def test_duration_ok_returns_bytes(recorder):
+def test_duration_ok_returns_bytes_and_duration(recorder):
     samples = np.zeros(16000, dtype=np.float32)  # 1.0s at 16kHz
     recorder._buffer = samples
     recorder._recording_duration = 1.0
     result = recorder.get_wav_if_long_enough()
-    assert isinstance(result, bytes)
-    assert len(result) > 44  # at least WAV header size
+    assert result is not None
+    wav_bytes, duration = result
+    assert isinstance(wav_bytes, bytes)
+    assert len(wav_bytes) > 44  # at least WAV header size
+    assert duration == pytest.approx(1.0)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -423,12 +426,13 @@ class AudioRecorder(QObject):
             self._stream.close()
             self._stream = None
 
-    def get_wav_if_long_enough(self) -> bytes | None:
+    def get_wav_if_long_enough(self) -> tuple[bytes, float] | None:
+        """Returns (wav_bytes, duration_seconds) or None if too short."""
         with self._lock:
             duration = len(self._buffer) / self.sample_rate
             if duration < MIN_DURATION_SECONDS:
                 return None
-            return self._encode_wav(self._buffer.copy())
+            return self._encode_wav(self._buffer.copy()), duration
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time, status):
         mono = indata[:, 0] if indata.ndim > 1 else indata.flatten()
@@ -794,9 +798,11 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
         hotkey_pressed  — user pressed the combo
         hotkey_released — user released the combo (key-up WM_HOTKEY, simulated via hold detection)
 
-    Note: RegisterHotKey fires on key-down only. We detect "released" by listening to the
-    raw WM_KEYUP of VK_SPACE while Ctrl+Shift are still held, via a secondary filter.
-    For simplicity in v1 we treat each WM_HOTKEY as a toggle: odd=press, even=release.
+    v1 behavior: RegisterHotKey fires on key-down only, so true push-to-talk
+    (hold=record, release=stop) is not possible with RegisterHotKey alone.
+    Instead we use TOGGLE mode: first press starts recording, second press stops it.
+    The pill shows a red dot + animated bars while recording so the user always
+    knows the current state. True push-to-talk is a v2 enhancement.
     """
     hotkey_pressed = pyqtSignal()
     hotkey_released = pyqtSignal()
@@ -1308,12 +1314,14 @@ def main():
 
     def on_hotkey_released():
         recorder.stop()
-        wav = recorder.get_wav_if_long_enough()
-        if wav is None:
+        result = recorder.get_wav_if_long_enough()
+        if result is None:
             pill.set_state(PillState.IDLE)
             return
+        wav, duration = result
         pill.set_state(PillState.PROCESSING)
         worker.audio_bytes = wav
+        worker.duration = duration
         worker.start()
 
     def on_rms(value: float):
@@ -1322,18 +1330,19 @@ def main():
     from PyQt6.QtCore import QThread, pyqtSignal as Signal
 
     class TranscribeWorker(QThread):
-        done = Signal(str)      # text
-        failed = Signal(str)    # error message
+        done = Signal(str, float)  # text, duration_seconds
+        failed = Signal(str)       # error message
 
         def __init__(self):
             super().__init__()
             self.audio_bytes: bytes = b""
+            self.duration: float = 0.0
 
         def run(self):
             try:
                 text = transcriber.transcribe(self.audio_bytes)
                 if text:
-                    self.done.emit(text)
+                    self.done.emit(text, self.duration)
                 else:
                     self.failed.emit("Sin texto detectado")
             except TranscriptionError as e:
@@ -1341,13 +1350,11 @@ def main():
 
     worker = TranscribeWorker()
 
-    def on_transcription_done(text: str):
-        import sounddevice as sd
+    def on_transcription_done(text: str, duration: float):
         paster.paste(text, hwnd=_target_hwnd[0])
-        duration = len(text) / 15  # rough estimate fallback
         db.save_transcription(text, duration)
         pill.set_state(PillState.IDLE)
-        logger.info(f"Transcribed: {text[:60]}")
+        logger.info(f"Transcribed ({duration:.1f}s): {text[:60]}")
 
     def on_transcription_failed(message: str):
         pill.set_state(PillState.ERROR)
@@ -1359,7 +1366,7 @@ def main():
     hotkey_mgr.hotkey_pressed.connect(on_hotkey_pressed)
     hotkey_mgr.hotkey_released.connect(on_hotkey_released)
     recorder.rms_signal.connect(on_rms)
-    worker.done.connect(on_transcription_done)
+    worker.done.connect(on_transcription_done)  # (text: str, duration: float)
     worker.failed.connect(on_transcription_failed)
 
     pill.show()
@@ -1397,9 +1404,9 @@ Expected:
 
 - [ ] **Step 2: Test recording flow manually**
 
-1. Hold `Ctrl+Shift+Space` — pill shows RECORDING state with animated bars
+1. Press `Ctrl+Shift+Space` once — pill shows RECORDING state with animated bars (toggle on)
 2. Say a sentence out loud
-3. Release keys — pill shows PROCESSING
+3. Press `Ctrl+Shift+Space` again — pill shows PROCESSING (toggle off)
 4. Text appears in the active window — pill returns to IDLE
 
 - [ ] **Step 3: Test error handling**
