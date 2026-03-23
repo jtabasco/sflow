@@ -64,9 +64,7 @@ def main():
         tray.notify("API key no configurada. Usa el ícono de la bandeja para configurarla.")
 
     if not hotkey_mgr.register():
-        tray.notify("No se pudo registrar el hotkey (¿ya está en uso?)")
-
-    app.installNativeEventFilter(hotkey_mgr)
+        tray.notify("No se pudo activar el hotkey")
 
     _target_hwnd: list[int] = [0]
 

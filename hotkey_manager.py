@@ -1,69 +1,54 @@
 import logging
+import win32api
 import win32con
-import win32gui
-from PyQt6.QtCore import QObject, pyqtSignal, QAbstractNativeEventFilter
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 logger = logging.getLogger(__name__)
 
-# Hotkey ID (arbitrary int, must be unique per process)
-HOTKEY_ID = 1
-# Ctrl+Alt+D  (D for Dictate — less likely to conflict)
-MODIFIERS = win32con.MOD_CONTROL | win32con.MOD_ALT | win32con.MOD_NOREPEAT
-VKEY = ord("D")
-WM_HOTKEY = 0x0312
+# Ctrl+Alt+D — poll via GetAsyncKeyState
+VK_CTRL = win32con.VK_CONTROL
+VK_ALT = win32con.VK_MENU   # VK_MENU = Alt key
+VK_D = ord("D")
+
+POLL_INTERVAL_MS = 30  # check every 30ms
 
 
-class HotkeyManager(QObject, QAbstractNativeEventFilter):
+class HotkeyManager(QObject):
     """
-    Registers Ctrl+Shift+Space as a system-wide hotkey via win32 RegisterHotKey.
-    Integrates with Qt's event loop via QAbstractNativeEventFilter (no extra thread needed).
-
-    Emits:
-        hotkey_pressed  — first press, starts recording
-        hotkey_released — second press, stops recording
-
-    v1 behavior: RegisterHotKey fires on key-down only, so true push-to-talk
-    (hold=record, release=stop) is not possible with RegisterHotKey alone.
-    Instead we use TOGGLE mode: first press starts recording, second press stops it.
-    The pill shows a red dot + animated bars while recording so the user always
-    knows the current state. True push-to-talk is a v2 enhancement.
+    Detects Ctrl+Alt+D via GetAsyncKeyState polling (QTimer).
+    Emits hotkey_pressed on key-down, hotkey_released on key-up.
+    This gives true push-to-talk behavior (hold = record, release = stop).
+    No RegisterHotKey needed — works without admin, no conflicts.
     """
     hotkey_pressed = pyqtSignal()
     hotkey_released = pyqtSignal()
 
     def __init__(self, parent=None):
-        QObject.__init__(self, parent)
-        QAbstractNativeEventFilter.__init__(self)
-        self._registered = False
+        super().__init__(parent)
         self._held = False
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._poll)
 
     def register(self) -> bool:
-        """Register hotkey. Returns True on success."""
-        try:
-            win32gui.RegisterHotKey(None, HOTKEY_ID, MODIFIERS, VKEY)
-            self._registered = True
-            logger.info("Hotkey Ctrl+Alt+D registered")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to register hotkey: {e}")
-            return False
+        self._timer.start(POLL_INTERVAL_MS)
+        logger.info("Hotkey Ctrl+Alt+D active (polling mode)")
+        return True
 
     def unregister(self):
-        if self._registered:
-            win32gui.UnregisterHotKey(None, HOTKEY_ID)
-            self._registered = False
+        self._timer.stop()
 
-    def nativeEventFilter(self, event_type: bytes, message) -> tuple[bool, int]:
-        """Called by Qt event loop for every native Windows message."""
-        from ctypes import cast, POINTER
-        from ctypes.wintypes import MSG
-        msg = cast(int(message), POINTER(MSG)).contents
-        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-            if not self._held:
-                self._held = True
-                self.hotkey_pressed.emit()
-            else:
-                self._held = False
-                self.hotkey_released.emit()
-            return True, 0
-        return False, 0
+    def _poll(self):
+        ctrl = bool(win32api.GetAsyncKeyState(VK_CTRL) & 0x8000)
+        alt  = bool(win32api.GetAsyncKeyState(VK_ALT)  & 0x8000)
+        d    = bool(win32api.GetAsyncKeyState(VK_D)    & 0x8000)
+
+        pressed = ctrl and alt and d
+
+        if pressed and not self._held:
+            self._held = True
+            logger.info("Hotkey pressed — recording start")
+            self.hotkey_pressed.emit()
+        elif not pressed and self._held:
+            self._held = False
+            logger.info("Hotkey released — recording stop")
+            self.hotkey_released.emit()
