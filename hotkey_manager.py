@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 # Hotkey ID (arbitrary int, must be unique per process)
 HOTKEY_ID = 1
-# Ctrl+Shift+Space
-MODIFIERS = win32con.MOD_CONTROL | win32con.MOD_SHIFT
+# Ctrl+Alt+Space
+MODIFIERS = win32con.MOD_CONTROL | win32con.MOD_ALT
 VKEY = win32con.VK_SPACE
 WM_HOTKEY = 0x0312
 
@@ -42,7 +42,7 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
         result = win32gui.RegisterHotKey(None, HOTKEY_ID, MODIFIERS, VKEY)
         if result:
             self._registered = True
-            logger.info("Hotkey Ctrl+Shift+Space registered")
+            logger.info("Hotkey Ctrl+Alt+Space registered")
         else:
             logger.error("Failed to register hotkey (already in use?)")
         return bool(result)

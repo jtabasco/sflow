@@ -14,7 +14,7 @@ class TrayIcon(QSystemTrayIcon):
         self._db = db
         self._port = dashboard_port
         self._setup_menu()
-        self.setToolTip("sflow — Ctrl+Shift+Space para dictar")
+        self.setToolTip("sflow — Ctrl+Alt+Space para dictar")
 
     def _setup_menu(self):
         menu = QMenu()
