@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sflow — Historial</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; padding: 24px; }
+    h1 { font-size: 1.4rem; margin-bottom: 16px; color: #7eb8ff; }
+    .search-bar { display: flex; gap: 8px; margin-bottom: 20px; }
+    .search-bar input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #e0e0e0; font-size: 0.95rem; }
+    .search-bar button { padding: 8px 16px; border-radius: 8px; border: none; background: #3a78c9; color: white; cursor: pointer; }
+    .stats { font-size: 0.85rem; color: #888; margin-bottom: 16px; }
+    .card { background: #1a1a1a; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; position: relative; }
+    .card .text { font-size: 0.95rem; line-height: 1.5; margin-bottom: 8px; }
+    .card .meta { font-size: 0.78rem; color: #666; }
+    .card .copy-btn { position: absolute; top: 12px; right: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid #333; background: #222; color: #aaa; cursor: pointer; font-size: 0.78rem; }
+    .card .copy-btn:hover { background: #333; color: #fff; }
+    .pagination { display: flex; gap: 8px; margin-top: 24px; justify-content: center; }
+    .pagination a { padding: 6px 14px; border-radius: 6px; background: #1a1a1a; color: #7eb8ff; text-decoration: none; border: 1px solid #333; }
+    .pagination a.active { background: #3a78c9; color: #fff; border-color: #3a78c9; }
+    .empty { color: #555; text-align: center; padding: 48px; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ sflow — Historial</h1>
+  <form class="search-bar" method="get">
+    <input type="text" name="q" placeholder="Buscar transcripciones…" value="{{ search }}">
+    <button type="submit">Buscar</button>
+    {% if search %}<a href="/" style="padding:8px 12px;color:#888;text-decoration:none">✕</a>{% endif %}
+  </form>
+  <p class="stats">{{ total }} transcripción{% if total != 1 %}es{% endif %}{% if search %} para "{{ search }}"{% endif %}</p>
+
+  {% if transcriptions %}
+    {% for t in transcriptions %}
+    <div class="card">
+      <div class="text">{{ t.text }}</div>
+      <div class="meta">{{ t.created_at }} · {{ "%.1f"|format(t.duration) }}s</div>
+      <button class="copy-btn" onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('.text').textContent)">Copiar</button>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty">No hay transcripciones{% if search %} que coincidan{% endif %}.</div>
+  {% endif %}
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% for p in range(1, total_pages + 1) %}
+      <a href="?page={{ p }}&q={{ search }}" {% if p == page %}class="active"{% endif %}>{{ p }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <script>
+    {% if page == 1 and not search %}
+    setTimeout(() => location.reload(), 10000);
+    {% endif %}
+  </script>
+</body>
+</html>
