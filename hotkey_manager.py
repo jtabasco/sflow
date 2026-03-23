@@ -7,9 +7,9 @@ logger = logging.getLogger(__name__)
 
 # Hotkey ID (arbitrary int, must be unique per process)
 HOTKEY_ID = 1
-# Ctrl+Alt+Space
-MODIFIERS = win32con.MOD_CONTROL | win32con.MOD_ALT
-VKEY = win32con.VK_SPACE
+# Ctrl+Alt+D  (D for Dictate — less likely to conflict)
+MODIFIERS = win32con.MOD_CONTROL | win32con.MOD_ALT | win32con.MOD_NOREPEAT
+VKEY = ord("D")
 WM_HOTKEY = 0x0312
 
 
@@ -39,13 +39,14 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
 
     def register(self) -> bool:
         """Register hotkey. Returns True on success."""
-        result = win32gui.RegisterHotKey(None, HOTKEY_ID, MODIFIERS, VKEY)
-        if result:
+        try:
+            win32gui.RegisterHotKey(None, HOTKEY_ID, MODIFIERS, VKEY)
             self._registered = True
-            logger.info("Hotkey Ctrl+Alt+Space registered")
-        else:
-            logger.error("Failed to register hotkey (already in use?)")
-        return bool(result)
+            logger.info("Hotkey Ctrl+Alt+D registered")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to register hotkey: {e}")
+            return False
 
     def unregister(self):
         if self._registered:

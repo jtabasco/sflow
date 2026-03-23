@@ -118,7 +118,7 @@ def main():
     pill.show()
     tray.show()
 
-    logger.info(f"sflow started — Ctrl+Alt+Space to dictate | dashboard: http://localhost:{port}")
+    logger.info(f"sflow started — Ctrl+Alt+D to dictate | dashboard: http://localhost:{port}")
     sys.exit(app.exec())
 
 
