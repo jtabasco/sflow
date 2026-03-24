@@ -17,6 +17,10 @@ BORDER = {
     "error":      QColor(255, 60,  60),
 }
 
+WIDTH_IDLE = 34
+WIDTH_FULL = 120
+HEIGHT = 26
+
 
 class PillState(Enum):
     IDLE = "idle"
@@ -49,7 +53,7 @@ class PillUI(QWidget):
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(120, 26)
+        self.setFixedSize(WIDTH_IDLE, HEIGHT)
 
     def _restore_position(self):
         x = int(self._db.get_setting("pill_x", default="100"))
@@ -65,6 +69,13 @@ class PillUI(QWidget):
         self._state = state
         if state != PillState.RECORDING:
             self._rms = 0.0
+        
+        # Adjust width based on state
+        if state == PillState.IDLE:
+            self.setFixedSize(WIDTH_IDLE, HEIGHT)
+        else:
+            self.setFixedSize(WIDTH_FULL, HEIGHT)
+            
         self.update()
 
     def set_rms(self, value: float):
@@ -94,7 +105,7 @@ class PillUI(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         w, h = self.width(), self.height()
-        bw = 1.5          # border width
+        bw = 2.0          # border width
         r = h / 2 - bw   # inner radius
 
         # Background (inset by border)
@@ -122,9 +133,10 @@ class PillUI(QWidget):
 
         if self._state == PillState.IDLE:
             painter.setPen(QColor(200, 185, 255))
-            font = QFont("Segoe UI", 8)
+            font = QFont("Segoe UI", 10)
             painter.setFont(font)
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "🎙  sflow")
+            # Center the icon precisely
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "🎙")
 
         elif self._state == PillState.RECORDING:
             self._draw_bars(painter)
@@ -156,8 +168,9 @@ class PillUI(QWidget):
 
             # Red → orange as level rises
             r = 255
-            g = int(60 + level * 140)
-            painter.fillRect(x, y, bar_w, h, QColor(r, g, 60))
+            g = int(80 + level * 150)
+            b = int(40 + level * 20)
+            painter.fillRect(x, y, bar_w, h, QColor(r, g, b))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST \"https://n8n.jtabasco.com/webhook/ics-email\" -H \"Content-Type: application/json\" -d '{\"\"to\"\":\"\"test@test.com\"\",\"\"subject\"\":\"\"test\"\",\"\"htmlBody\"\":\"\"<p>test</p>\"\",\"\"eventTitle\"\":\"\"Test\"\",\"\"startDateTime\"\":\"\"2026-03-25T10:00:00\"\",\"\"endDateTime\"\":\"\"2026-03-25T11:00:00\"\",\"\"eventDescription\"\":\"\"\"\",\"\"eventLocation\"\":\"\"\"\"}')",
+      "Bash(curl -s -X POST \"https://n8n.jtabasco.com/webhook/ics-email\" -H \"Content-Type: application/json\" -d '{\"\"to\"\":\"\"test@test.com\"\",\"\"subject\"\":\"\"test\"\",\"\"htmlBody\"\":\"\"<p>test</p>\"\",\"\"eventTitle\"\":\"\"Test\"\",\"\"startDateTime\"\":\"\"2026-03-25T10:00:00\"\",\"\"endDateTime\"\":\"\"2026-03-25T11:00:00\"\",\"\"eventDescription\"\":\"\"\"\",\"\"eventLocation\"\":\"\"\"\"}')",
+      "Bash(curl -s -X POST \"https://n8n.jtabasco.com/webhook/ics-email\" -H \"Content-Type: application/json\" -d '{\"\"to\"\":\"\"jtabasco41@gmail.com\"\",\"\"subject\"\":\"\"Test ICS\"\",\"\"htmlBody\"\":\"\"<p>Prueba de invitacion</p>\"\",\"\"eventTitle\"\":\"\"Evento de prueba\"\",\"\"startDateTime\"\":\"\"2026-03-25T10:00:00\"\",\"\"endDateTime\"\":\"\"2026-03-25T11:00:00\"\",\"\"eventDescription\"\":\"\"Descripcion test\"\",\"\"eventLocation\"\":\"\"Casa\"\"}')"
+    ]
+  }
+}
