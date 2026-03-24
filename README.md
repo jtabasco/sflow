@@ -44,7 +44,8 @@ Or double-click `launch.bat` to run without a terminal window.
 
 | Action | Hotkey |
 |--------|--------|
-| Push-to-talk | Hold `Ctrl+Shift+Space` |
+| Push-to-talk | Hold `Ctrl+Shift+Space`, release to stop |
+| Hands-free | Double-tap `Shift` to start, single tap to stop |
 | Open dashboard | Tray icon → Abrir Dashboard |
 | Configure API key | Tray icon → Configurar API key |
 | Quit | Tray icon → Salir |
