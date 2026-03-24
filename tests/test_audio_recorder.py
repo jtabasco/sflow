@@ -8,10 +8,14 @@ from audio_recorder import AudioRecorder
 
 @pytest.fixture
 def recorder():
-    r = AudioRecorder(sample_rate=16000)
-    yield r
-    if r.is_recording:
-        r.stop()
+    with patch("audio_recorder.sd.InputStream") as mock_stream_cls:
+        mock_stream = MagicMock()
+        mock_stream_cls.return_value = mock_stream
+        r = AudioRecorder(sample_rate=16000)
+        yield r
+        if r.is_recording:
+            r.stop()
+        r._rms_timer.stop()
 
 
 def test_initial_state(recorder):

@@ -9,12 +9,13 @@ logger = logging.getLogger(__name__)
 
 class TrayIcon(QSystemTrayIcon):
     def __init__(self, db, dashboard_port: int, parent=None):
-        icon = QIcon("assets/icon.png")
+        icon_path = "assets/icon.ico" if os.path.exists("assets/icon.ico") else "assets/icon.png"
+        icon = QIcon(icon_path)
         super().__init__(icon, parent)
         self._db = db
         self._port = dashboard_port
         self._setup_menu()
-        self.setToolTip("sflow — Ctrl+Alt+D para dictar")
+        self.setToolTip("sflow — Ctrl+Shift+Space (hold) · doble-tap Ctrl (manos libres)")
 
     def _setup_menu(self):
         menu = QMenu()
